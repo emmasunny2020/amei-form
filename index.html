@@ -148,6 +148,15 @@ function composeItin(f) {
   return lines.join('\n');
 }
 
+// 🏨 加住宿：飯店＋入住日＋退房日（阿美會存成入住、退房兩筆）
+function composeStay(f) {
+  const d = s => s.replace(/-/g, '/') + '（' + '日一二三四五六'[new Date(s + 'T00:00:00Z').getUTCDay()] + '）';
+  const lines = ['🏨 加住宿', `🏨 飯店：${oneLine(f.name)}`, `📅 入住：${d(f.cin)}`, `📅 退房：${d(f.cout)}`];
+  if (oneLine(f.place)) lines.push(`📍 地點：${oneLine(f.place)}`);
+  if (oneLine(f.note)) lines.push(`📝 備註：${oneLine(f.note)}`);
+  return lines.join('\n');
+}
+
 // 地圖頁「↕️ 排順序」送出：第一行是哪一天，下面一行一個「#編號 名稱」
 function composeReorder(f) {
   const day = f.date ? `${+f.date.slice(5, 7)}/${+f.date.slice(8, 10)}` : '還沒排日期';
@@ -258,7 +267,7 @@ async function main() {
     return screen('🥲', 'LINE 表單啟動失敗', '請回群組再按一次按鈕試試看～', h('p', { class: 'sub' }, String(e && e.message || e)));
   }
   const p = params();
-  S.mode = ['setup', 'itin', 'expense', 'map'].includes(p.mode) ? p.mode : 'expense';
+  S.mode = ['setup', 'itin', 'expense', 'map', 'stay'].includes(p.mode) ? p.mode : 'expense';
   S.t = p.t; S.d = p.d || ''; S.id = p.id || ''; S.w = p.w === '1';
   if (!S.t) return screen('🤔', '找不到是哪一趟旅程', '請從群組裡阿美的按鈕打開這個表單喔～');
   if (S.mode !== 'map' && !liff.isInClient() && !liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
@@ -272,7 +281,7 @@ async function main() {
   }
   if (!S.data.ok) return screen('🤔', '找不到這趟旅程', '可能已經結束或重新設定了～請回群組打「選單」重新打開。');
   S.me = S.mode === 'map' ? null : await myHash(S.t);
-  ({ setup: renderSetup, itin: renderItin, expense: renderExpense, map: renderMap })[S.mode]();
+  ({ setup: renderSetup, itin: renderItin, expense: renderExpense, map: renderMap, stay: renderStay })[S.mode]();
 }
 
 async function send(text, btn, opts) {
@@ -409,11 +418,58 @@ function renderItin() {
     card('⏰ 什麼時候？', '選填', chips(SLOTS.map(s => ({ value: s, label: s, toggle: true })), { value: st.slot, onChange: v => { st.slot = v; } }),
       h('div', { class: 'gap' }),
       h('input', { type: 'text', value: st.time, placeholder: '幾點？例如 19:00', oninput: e => { st.time = e.target.value; } })),
-    card('🏷️ 類型', '', chips(CATS.map(([n, e]) => ({ value: n, label: `${e} ${n}` })), { value: st.cat, onChange: v => { st.cat = v; } })),
+    card('🏷️ 類型', '', chips(CATS.map(([n, e]) => ({ value: n, label: `${e} ${n}` })), { value: st.cat, onChange: v => {
+      st.cat = v;
+      if (v === '住宿' && !it && !S.fromMap) renderStay({ name: st.name, place: st.place, note: st.note, cin: st.date }); // 住宿改用選日期的表單
+    } })),
     card('📍 地址或地圖連結', '選填', h('input', { type: 'text', value: st.place, placeholder: '貼上 Google 地圖連結也可以', oninput: e => { st.place = e.target.value; } })),
     card('📝 備註', '選填', h('input', { type: 'text', value: st.note, placeholder: '例如：要先預約、排隊很久', oninput: e => { st.note = e.target.value; } })),
     err, bar.el,
   );
+}
+
+/* ─────────── 🏨 加住宿 ─────────── */
+
+function renderStay(pre) {
+  pre = pre || {};
+  const T = S.data.trip;
+  const days = T.days.map(d => d.date);
+  if (T.end) { const n = new Date(T.end + 'T00:00:00Z'); n.setUTCDate(n.getUTCDate() + 1); days.push(n.toISOString().slice(0, 10)); }
+  const lab = s => { const d = new Date(s + 'T00:00:00Z'); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}（${'日一二三四五六'[d.getUTCDay()]}）`; };
+  const st = { name: pre.name || '', place: pre.place || '', note: pre.note || '', cin: pre.cin && days.includes(pre.cin) ? pre.cin : (days[0] || ''), cout: '' };
+  const after = s => days.filter(d => d > s);
+  st.cout = T.end && T.end > st.cin ? T.end : (after(st.cin)[0] || '');
+  const nights = h('div', { class: 'preview' });
+  const coutBox = h('div');
+  const drawNights = () => {
+    const n = st.cin && st.cout ? Math.round((new Date(st.cout) - new Date(st.cin)) / 864e5) : 0;
+    nights.textContent = n > 0 ? `🛏️ ${lab(st.cin)} 入住 → ${lab(st.cout)} 退房，住 ${n} 晚` : '退房要選在入住之後喔';
+  };
+  const drawCout = () => {
+    const opts = after(st.cin).map(d => ({ value: d, label: lab(d) }));
+    if (!opts.some(o => o.value === st.cout)) st.cout = opts.length ? opts[opts.length - 1 > 0 && T.end && opts.some(o => o.value === T.end) ? opts.findIndex(o => o.value === T.end) : 0].value : '';
+    coutBox.replaceChildren(chips(opts, { value: st.cout, onChange: v => { st.cout = v; drawNights(); } }));
+    drawNights();
+  };
+  const nameIn = h('input', { type: 'text', value: st.name, placeholder: '例如：江南福朋喜來登', maxlength: 50, oninput: e => { st.name = e.target.value; } });
+  const err = errBox();
+  const bar = submitBar('記下這間飯店 🏨', () => {
+    if (!oneLine(st.name)) { err.textContent = '住哪一間呢？飯店名稱要填喔 🏨'; nameIn.focus(); return; }
+    if (!st.cin || !st.cout || st.cout <= st.cin) { err.textContent = '退房要選在入住之後喔 📅'; return; }
+    err.textContent = '';
+    send(composeStay(st), bar.btn);
+  });
+  app().replaceChildren(
+    header('🏨 加住宿', '選飯店跟日期就好，阿美幫你算住幾晚'),
+    card('🏨 住哪一間？', '必填', nameIn),
+    card('📅 哪天入住？', '', chips(days.slice(0, -1).map(d => ({ value: d, label: lab(d) })), { value: st.cin, onChange: v => { st.cin = v; drawCout(); } })),
+    card('📅 哪天退房？', '', coutBox, nights),
+    card('📍 地址或地圖連結', '選填', h('input', { type: 'text', value: st.place, placeholder: '貼上 Google 地圖連結也可以', oninput: e => { st.place = e.target.value; } })),
+    card('📝 備註', '選填', h('input', { type: 'text', value: st.note, placeholder: '例如：訂房編號、含早餐', oninput: e => { st.note = e.target.value; } })),
+    err, bar.el,
+  );
+  drawCout();
+  window.scrollTo(0, 0);
 }
 
 /* ─────────── 💰 記帳 ─────────── */
