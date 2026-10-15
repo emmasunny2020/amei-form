@@ -64,6 +64,7 @@
   @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
   .map { height: 58vh; min-height: 320px; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); margin: 12px 0; background: var(--card); }
   .leaflet-container { font-family: inherit; }
+  .map.dim .leaflet-tile { filter: brightness(.82) contrast(1.05); }
   .pinwrap { background: none; border: 0; }
   .pin { position: absolute; transform: translate(-50%, -50%); min-width: 28px; height: 28px; padding: 0 6px; border-radius: 14px;
     color: #fff; font: 800 12px/24px -apple-system, BlinkMacSystemFont, sans-serif; text-align: center; white-space: nowrap;
@@ -239,7 +240,7 @@ async function main() {
   }
   const p = params();
   S.mode = ['setup', 'itin', 'expense', 'map'].includes(p.mode) ? p.mode : 'expense';
-  S.t = p.t; S.d = p.d || ''; S.id = p.id || '';
+  S.t = p.t; S.d = p.d || ''; S.id = p.id || ''; S.w = p.w === '1';
   if (!S.t) return screen('🤔', '找不到是哪一趟旅程', '請從群組裡阿美的按鈕打開這個表單喔～');
   if (S.mode !== 'map' && !liff.isInClient() && !liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
   try {
@@ -355,7 +356,7 @@ function renderItin() {
   if (S.id && !it) return screen('🤔', '找不到這個行程', '可能已經被刪掉了～回群組打「行程」看看最新的吧！');
   const st = {
     date: it ? (it.date || '') : S.d, slot: '', time: '', cat: it ? (it.cat || '其他') : '吃',
-    name: it ? it.name : '', place: it ? it.place : '', note: it ? it.note : '', status: it ? it.status : '想去',
+    name: it ? it.name : '', place: it ? it.place : '', note: it ? it.note : '', status: it ? it.status : (S.w ? '想去' : '確定'),
   };
   if (it && it.time) {
     const s = SLOTS.find(x => it.time.startsWith(x));
@@ -369,24 +370,21 @@ function renderItin() {
 
   const nameIn = h('input', { type: 'text', value: st.name, placeholder: '例如：一蘭拉麵 新宿店', maxlength: 60, oninput: e => { st.name = e.target.value; } });
   const err = errBox();
-  const bar = submitBar(it ? '更新行程 ✏️' : '加進行程 ✨', () => {
+  const bar = submitBar(it ? '更新行程 ✏️' : (S.w ? '放進願望清單 💭' : '加進行程 ✨'), () => {
     if (!oneLine(st.name)) { err.textContent = '要去哪裡呢？名稱一定要填喔 📌'; nameIn.focus(); return; }
     err.textContent = '';
     send(composeItin(Object.assign({ editId: it ? it.id : '' }, st)), bar.btn);
   });
 
   app().replaceChildren(
-    header(it ? `✏️ 改行程 #${it.id}` : '➕ 加行程', it ? '改好送出，阿美幫你更新～' : '又有好點子了？快告訴阿美！'),
+    header(it ? `✏️ 改行程 #${it.id}` : (S.w ? '💭 加進願望清單' : '➕ 加行程'),
+      it ? '改好送出，阿美幫你更新～' : (S.w ? '還沒決定沒關係，先記下來，大家點頭再改成確定～' : '又有好點子了？送出就排進行程！')),
     card('📌 去哪裡／做什麼？', '必填', nameIn),
     card('📅 哪一天？', '', chips(dayOpts, { value: st.date, onChange: v => { st.date = v; } })),
     card('⏰ 什麼時候？', '選填', chips(SLOTS.map(s => ({ value: s, label: s, toggle: true })), { value: st.slot, onChange: v => { st.slot = v; } }),
       h('div', { class: 'gap' }),
       h('input', { type: 'text', value: st.time, placeholder: '幾點？例如 19:00', oninput: e => { st.time = e.target.value; } })),
     card('🏷️ 類型', '', chips(CATS.map(([n, e]) => ({ value: n, label: `${e} ${n}` })), { value: st.cat, onChange: v => { st.cat = v; } })),
-    card('✨ 決定了嗎？', '', chips([
-      { value: '想去', label: '💭 想去（願望清單）', cls: 'wish' },
-      { value: '確定', label: '✅ 確定要去', cls: 'ok' },
-    ], { value: st.status, onChange: v => { st.status = v; } })),
     card('📍 地址或地圖連結', '選填', h('input', { type: 'text', value: st.place, placeholder: '貼上 Google 地圖連結也可以', oninput: e => { st.place = e.target.value; } })),
     card('📝 備註', '選填', h('input', { type: 'text', value: st.note, placeholder: '例如：要先預約、排隊很久', oninput: e => { st.note = e.target.value; } })),
     err, bar.el,
@@ -534,9 +532,10 @@ async function renderMap() {
 
   const map = L.map(mapEl, { zoomControl: true });
   const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'rastertiles/voyager'}/{z}/{x}/{y}{r}.png`, {
-    subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap © CARTO',
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }).addTo(map);
+  if (dark) mapEl.classList.add('dim');
   const layer = L.layerGroup().addTo(map);
   const markers = {};
 
