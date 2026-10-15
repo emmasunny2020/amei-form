@@ -93,6 +93,15 @@
   .mini { flex: 0 0 auto; width: 40px; height: 40px; border: 0; border-radius: 12px; background: var(--tint); color: var(--ink);
     font-size: 17px; margin-left: 6px; cursor: pointer; font-family: inherit; }
   .mini:disabled { opacity: .3; }
+  .ck { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; background: var(--card); color: var(--ink);
+    border: 2px solid var(--line); border-radius: 16px; padding: 16px; margin: 10px 0; font-family: inherit; cursor: pointer; }
+  .ck .box { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 9px; border: 3px solid var(--soft); display: flex;
+    align-items: center; justify-content: center; font-size: 22px; font-weight: 900; color: #fff; }
+  .ck.on { border-color: var(--ok); }
+  .ck.on .box { background: var(--ok); border-color: var(--ok); }
+  .ck b { display: block; font-size: 20px; }
+  .ck small { display: block; font-size: 14px; color: var(--soft); margin-top: 4px; line-height: 1.4; }
+  .ck.on b { text-decoration: line-through; color: var(--soft); }
   .pop .nav { display: inline-block; margin-top: 8px; padding: 6px 12px; border-radius: 10px; background: #FF7A59; color: #fff !important;
     text-decoration: none; font-weight: 700; }
 </style>
@@ -267,21 +276,22 @@ async function main() {
     return screen('🥲', 'LINE 表單啟動失敗', '請回群組再按一次按鈕試試看～', h('p', { class: 'sub' }, String(e && e.message || e)));
   }
   const p = params();
-  S.mode = ['setup', 'itin', 'expense', 'map', 'stay'].includes(p.mode) ? p.mode : 'expense';
+  S.mode = ['setup', 'itin', 'expense', 'map', 'stay', 'check'].includes(p.mode) ? p.mode : 'expense';
   S.t = p.t; S.d = p.d || ''; S.id = p.id || ''; S.w = p.w === '1';
   if (!S.t) return screen('🤔', '找不到是哪一趟旅程', '請從群組裡阿美的按鈕打開這個表單喔～');
-  if (S.mode !== 'map' && !liff.isInClient() && !liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+  if (S.mode !== 'map' && S.mode !== 'check' && !liff.isInClient() && !liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
   try {
     let url = `${CONFIG.GAS_URL}?fn=${S.mode === 'map' ? 'map' : 'trip'}&t=${encodeURIComponent(S.t)}`;
     if (S.id && S.mode === 'itin') url += `&item=${encodeURIComponent(S.id)}`;
+    if (S.mode === 'check') url += '&check=1';
     if (S.id && S.mode === 'expense') url += `&exp=${encodeURIComponent(S.id)}`;
     S.data = await (await fetch(url)).json();
   } catch (e) {
     return screen('🥲', '阿美連不上行程表', '網路好像不太穩，等一下再試一次好嗎？', h('p', { class: 'sub' }, '（如果一直這樣，請管理員檢查 GAS_URL）'));
   }
   if (!S.data.ok) return screen('🤔', '找不到這趟旅程', '可能已經結束或重新設定了～請回群組打「選單」重新打開。');
-  S.me = S.mode === 'map' ? null : await myHash(S.t);
-  ({ setup: renderSetup, itin: renderItin, expense: renderExpense, map: renderMap, stay: renderStay })[S.mode]();
+  S.me = S.mode === 'map' || S.mode === 'check' ? null : await myHash(S.t);
+  ({ setup: renderSetup, itin: renderItin, expense: renderExpense, map: renderMap, stay: renderStay, check: renderCheck })[S.mode]();
 }
 
 async function send(text, btn, opts) {
@@ -426,6 +436,32 @@ function renderItin() {
     card('📝 備註', '選填', h('input', { type: 'text', value: st.note, placeholder: '例如：要先預約、排隊很久', oninput: e => { st.note = e.target.value; } })),
     err, bar.el,
   );
+}
+
+/* ─────────── ☑️ 我的行前清單（存在自己手機，不傳到群組）─────────── */
+
+function renderCheck() {
+  const list = S.data.checks || [];
+  const key = 'amei-check-' + S.t;
+  let done = {};
+  try { done = JSON.parse(localStorage.getItem(key) || '{}') || {}; } catch (e) { done = {}; }
+  const save = () => { try { localStorage.setItem(key, JSON.stringify(done)); } catch (e) { /* 存不了就算了 */ } };
+  const prog = h('div', { class: 'preview' });
+  const wrap = h('div');
+  const draw = () => {
+    const n = list.filter(c => done[c.id]).length;
+    prog.textContent = n === list.length && n ? `🎉 全部準備好了！${n}／${list.length}` : `已經準備 ${n}／${list.length} 項`;
+    wrap.replaceChildren(...list.map(c => h('button', {
+      type: 'button', class: 'ck' + (done[c.id] ? ' on' : ''), 'aria-pressed': done[c.id] ? 'true' : 'false',
+      onclick: () => { if (done[c.id]) delete done[c.id]; else done[c.id] = 1; save(); draw(); },
+    }, h('span', { class: 'box' }, done[c.id] ? '✓' : ''), h('span', {}, h('b', {}, c.item), c.note ? h('small', {}, c.note) : null))));
+  };
+  app().replaceChildren(
+    header('☑️ 我的行前清單', '準備好就點一下，再點一次取消。只存在你的手機，不會傳到群組。'),
+    prog, wrap,
+    h('button', { type: 'button', class: 'btn2', onclick: () => { try { liff.closeWindow(); } catch (e) { /* 不在 LINE 裡 */ } } }, '好了，關掉'),
+  );
+  draw();
 }
 
 /* ─────────── 🏨 加住宿 ─────────── */
