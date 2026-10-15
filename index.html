@@ -82,6 +82,17 @@
   .pop { font-size: 13px; line-height: 1.55; color: #3D2C29; min-width: 180px; max-width: 230px; }
   .pop b { font-size: 14px; }
   .pop .pn { color: #8A7570; }
+  .tools { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 0 2px; }
+  .tools small { color: var(--soft); font-size: 12px; }
+  .tbtn { border: 1.5px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 8px 14px;
+    font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer; }
+  .tbtn.back { margin-top: 16px; }
+  .li-row { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+  .li-row:last-child { border-bottom: 0; }
+  .li-row .li { border-bottom: 0; flex: 1; min-width: 0; cursor: pointer; }
+  .mini { flex: 0 0 auto; width: 40px; height: 40px; border: 0; border-radius: 12px; background: var(--tint); color: var(--ink);
+    font-size: 17px; margin-left: 6px; cursor: pointer; font-family: inherit; }
+  .mini:disabled { opacity: .3; }
   .pop .nav { display: inline-block; margin-top: 8px; padding: 6px 12px; border-radius: 10px; background: #FF7A59; color: #fff !important;
     text-decoration: none; font-weight: 700; }
 </style>
@@ -134,6 +145,14 @@ function composeItin(f) {
   if (oneLine(f.place)) lines.push(`📍 地點：${oneLine(f.place)}`);
   if (oneLine(f.note)) lines.push(`📝 備註：${oneLine(f.note)}`);
   lines.push(f.status === '確定' ? '✅ 狀態：確定' : '💭 狀態：想去');
+  return lines.join('\n');
+}
+
+// 地圖頁「↕️ 排順序」送出：第一行是哪一天，下面一行一個「#編號 名稱」
+function composeReorder(f) {
+  const day = f.date ? `${+f.date.slice(5, 7)}/${+f.date.slice(8, 10)}` : '還沒排日期';
+  const lines = [`↕️ 排順序 ${day}${f.label ? `（${oneLine(f.label)}）` : ''}`];
+  f.items.forEach(it => lines.push(`#${it.id} ${oneLine(it.name)}`));
   return lines.join('\n');
 }
 
@@ -256,12 +275,17 @@ async function main() {
   ({ setup: renderSetup, itin: renderItin, expense: renderExpense, map: renderMap })[S.mode]();
 }
 
-async function send(text, btn) {
+async function send(text, btn, opts) {
   btn.disabled = true;
   btn.textContent = '送出中…';
   try {
     if (!liff.isInClient()) throw new Error('not in LINE');
     await liff.sendMessages([{ type: 'text', text }]);
+    if (opts && opts.onSent) { // 從地圖頁來的：送出後回地圖，等阿美更新完再重新載入
+      screen('🎉', '送出囉！', '阿美收到了，地圖等一下就更新 🌸');
+      setTimeout(opts.onSent, 2200);
+      return;
+    }
     screen('🎉', '送出囉！', '阿美收到了，等等會在群組回覆你 🌸');
     setTimeout(() => liff.closeWindow(), 1300);
   } catch (e) {
@@ -373,10 +397,11 @@ function renderItin() {
   const bar = submitBar(it ? '更新行程 ✏️' : (S.w ? '放進願望清單 💭' : '加進行程 ✨'), () => {
     if (!oneLine(st.name)) { err.textContent = '要去哪裡呢？名稱一定要填喔 📌'; nameIn.focus(); return; }
     err.textContent = '';
-    send(composeItin(Object.assign({ editId: it ? it.id : '' }, st)), bar.btn);
+    send(composeItin(Object.assign({ editId: it ? it.id : '' }, st)), bar.btn, S.fromMap ? { onSent: backToMap } : null);
   });
 
   app().replaceChildren(
+    S.fromMap ? h('button', { type: 'button', class: 'tbtn back', onclick: backToMap }, '← 回地圖') : null,
     header(it ? `✏️ 改行程 #${it.id}` : (S.w ? '💭 加進願望清單' : '➕ 加行程'),
       it ? '改好送出，阿美幫你更新～' : (S.w ? '還沒決定沒關係，先記下來，大家點頭再改成確定～' : '又有好點子了？送出就排進行程！')),
     card('📌 去哪裡／做什麼？', '必填', nameIn),
@@ -492,6 +517,27 @@ function loadLeaflet() {
   });
 }
 
+// 地圖頁按 ✏️：在同一頁打開這筆的修改表單，送出後回地圖
+async function openEdit(it, day) {
+  S.fromMap = true; S.mapDay = day; S.mode = 'itin'; S.id = String(it.id); S.d = it.date || '';
+  screen('🌸', '打開表單中…');
+  try {
+    S.data = await (await fetch(`${CONFIG.GAS_URL}?fn=trip&t=${encodeURIComponent(S.t)}&item=${encodeURIComponent(it.id)}`)).json();
+  } catch (e) { return screen('🥲', '阿美連不上行程表', '網路好像不太穩，等一下再試一次好嗎？'); }
+  window.scrollTo(0, 0);
+  renderItin();
+}
+
+async function backToMap() {
+  S.mode = 'map'; S.id = ''; S.fromMap = false; S.d = S.mapDay || '';
+  screen('🗺️', '地圖更新中…');
+  try {
+    S.data = await (await fetch(`${CONFIG.GAS_URL}?fn=map&t=${encodeURIComponent(S.t)}&_=${Date.now()}`)).json();
+  } catch (e) { return screen('🥲', '阿美連不上行程表', '網路好像不太穩，等一下再試一次好嗎？'); }
+  window.scrollTo(0, 0);
+  renderMap();
+}
+
 // 在 LINE 裡點導航：用手機的瀏覽器或地圖 App 開
 document.addEventListener('click', e => {
   const a = e.target.closest && e.target.closest('a.nav');
@@ -518,16 +564,23 @@ async function renderMap() {
   const badge = (it, all) => (it.cat === '住宿' ? '🏨' : all && inTrip(it) ? `${dayIdx[it.date] + 1}-${num[it.id]}` : String(num[it.id]));
   const when = it => [inTrip(it) ? T.days[dayIdx[it.date]].label.replace('｜', ' ') : (it.date ? it.date.replace(/-/g, '/') : '還沒排日期'), it.time].filter(Boolean).join('・');
 
-  const st = { day: S.d && S.d in dayIdx ? S.d : 'all' };
+  const st = { day: S.d && (S.d in dayIdx || S.d === 'wish') ? S.d : 'all', sort: false, order: [] };
   const opts = [{ value: 'all', label: '🗺️ 全部' }].concat(T.days.map((d, i) => ({ value: d.date, label: `Day ${i + 1}` })));
   if (items.some(i => !inTrip(i) && i.cat !== '住宿')) opts.push({ value: 'wish', label: '💭 未排', cls: 'wish' });
   const mapEl = h('div', { class: 'map' });
+  const tools = h('div', { class: 'tools' });
   const list = h('div', { class: 'card list' });
   const pinned = items.filter(i => i.lat != null).length;
+  // 排順序：只排這一天的行程，送出一則「↕️ 排順序」到群組（跟表單一樣經過群組，大家都看得到）
+  const sortBar = submitBar('送出新順序 ↕️', () => {
+    S.mapDay = st.day;
+    send(composeReorder({ date: st.day, label: `Day ${dayIdx[st.day] + 1}`, items: st.order }), sortBar.btn, { onSent: backToMap });
+  });
+  sortBar.el.style.display = 'none';
   app().replaceChildren(
     header('🗺️ 行程地圖', `${T.dest}｜已插旗 ${pinned} 個點`),
-    h('div', { class: 'card' }, chips(opts, { value: st.day, onChange: v => { st.day = v || 'all'; draw(); } })),
-    mapEl, list,
+    h('div', { class: 'card' }, chips(opts, { value: st.day, onChange: v => { st.day = v || 'all'; st.sort = false; draw(); } })),
+    mapEl, tools, list, sortBar.el,
   );
 
   const map = L.map(mapEl, { zoomControl: true });
@@ -540,12 +593,13 @@ async function renderMap() {
   const markers = {};
 
   const visible = () => items.filter(it => it.cat === '住宿' || st.day === 'all' || (st.day === 'wish' ? !inTrip(it) : it.date === st.day));
+  const dayItems = () => items.filter(it => it.date === st.day);
 
   function popup(it) {
     const nav = /^https:\/\//.test(it.nav || '') ? it.nav : '';
     return `<div class="pop"><b>${esc(it.emoji + ' ' + it.name)}</b>`
       + `<div>${esc(when(it))}</div>`
-      + `<div>${it.status === '確定' ? '✅ 確定' : '💭 想去'}</div>`
+      + (it.status === '確定' ? '' : '<div>💭 想去（還沒決定）</div>')
       + (it.place && !/^https?:/.test(it.place) ? `<div>📍 ${esc(it.place)}</div>` : '')
       + (it.note ? `<div class="pn">📝 ${esc(it.note)}</div>` : '')
       + (nav ? `<a class="nav" href="${esc(nav)}" target="_blank" rel="noopener">🧭 導航</a>` : '')
@@ -591,12 +645,41 @@ async function renderMap() {
     if (fit.length === 1) map.setView([fit[0].lat, fit[0].lng], 15);
     else if (fit.length) map.fitBounds(L.latLngBounds(fit.map(it => [it.lat, it.lng])), { padding: [36, 36], maxZoom: 16 });
     else map.setView([23.7, 121], 3);
-    list.replaceChildren(...(vis.length ? vis.map(it => h('button', { type: 'button', class: 'li', onclick: () => focus(it) },
-      h('span', { class: 'badge', style: `background:${colorOf(it)}` }, badge(it, all)),
-      h('span', { class: 'li-main' },
-        h('b', {}, `${it.emoji} ${it.name}`),
-        h('small', {}, [when(it), it.status === '確定' ? '' : '💭 想去', it.lat == null ? '📍 還沒定位' : ''].filter(Boolean).join('・')))))
+    drawTools();
+    sortBar.el.style.display = st.sort ? '' : 'none';
+    if (st.sort) {
+      const o = st.order;
+      const mv = (i, j) => { const t = o[i]; o[i] = o[j]; o[j] = t; draw(); };
+      list.replaceChildren(...o.map((it, i) => h('div', { class: 'li-row' },
+        h('div', { class: 'li' },
+          h('span', { class: 'badge', style: `background:${colorOf(it)}` }, String(i + 1)),
+          h('span', { class: 'li-main' }, h('b', {}, `${it.emoji} ${it.name}`), h('small', {}, it.time || '沒寫時間'))),
+        h('button', { type: 'button', class: 'mini up', 'aria-label': '往前', disabled: i === 0, onclick: () => mv(i, i - 1) }, '⬆️'),
+        h('button', { type: 'button', class: 'mini down', 'aria-label': '往後', disabled: i === o.length - 1, onclick: () => mv(i, i + 1) }, '⬇️'))));
+      return;
+    }
+    list.replaceChildren(...(vis.length ? vis.map(it => h('div', { class: 'li-row' },
+      h('button', { type: 'button', class: 'li', onclick: () => focus(it) },
+        h('span', { class: 'badge', style: `background:${colorOf(it)}` }, badge(it, all)),
+        h('span', { class: 'li-main' },
+          h('b', {}, `${it.emoji} ${it.name}`),
+          h('small', {}, [when(it), it.status === '確定' ? '' : '💭 想去', it.lat == null ? '📍 還沒定位' : ''].filter(Boolean).join('・')))),
+      h('button', { type: 'button', class: 'mini edit', 'aria-label': '修改', onclick: () => openEdit(it, st.day) }, '✏️')))
       : [h('p', { class: 'sub' }, '這天還沒有行程～回群組按「➕ 加行程」吧！')]));
+  }
+
+  function drawTools() {
+    if (st.sort) {
+      tools.replaceChildren(h('small', {}, '用 ⬆️⬇️ 挪好，再按下面「送出新順序」'),
+        h('button', { type: 'button', class: 'tbtn', onclick: () => { st.sort = false; draw(); } }, '取消'));
+      return;
+    }
+    const kids = [];
+    if (st.day in dayIdx && dayItems().length > 1) {
+      kids.push(h('button', { type: 'button', class: 'tbtn sort', onclick: () => { st.sort = true; st.order = dayItems(); draw(); } }, '↕️ 排順序'));
+    }
+    kids.push(h('small', {}, st.day in dayIdx ? '點 ✏️ 可以改時間、名稱' : '選一天就能排順序；點 ✏️ 可以改時間、名稱'));
+    tools.replaceChildren(...kids);
   }
 
   draw();
