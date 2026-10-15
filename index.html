@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>阿美小表單</title>
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  :root {
+    --bg: #FFF7F2; --card: #FFFFFF; --ink: #3D2C29; --soft: #8A7570; --line: #F1E4DE;
+    --main: #FF7A59; --main-ink: #FFFFFF; --tint: #FFF1EB; --wish: #9B7BD4; --ok: #2BAA6E; --danger: #D9534F;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1E1715; --card: #2A211E; --ink: #F6ECE8; --soft: #B8A49E; --line: #3D302B; --main: #FF8A6B; --tint: #3A2A24; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
+  body { padding: 0 16px calc(104px + env(safe-area-inset-bottom)); max-width: 560px; margin: 0 auto; }
+  .top { padding: 22px 2px 6px; }
+  .who { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--soft);
+    background: var(--tint); padding: 4px 10px; border-radius: 999px; }
+  h1 { font-size: 24px; margin: 10px 0 4px; letter-spacing: .5px; }
+  .top p { margin: 0; color: var(--soft); font-size: 15px; line-height: 1.5; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 16px; margin: 12px 0; }
+  .label { font-size: 14px; font-weight: 800; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .label small { font-weight: 500; color: var(--soft); font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { border: 1.5px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px;
+    padding: 9px 14px; font-size: 15px; font-family: inherit; line-height: 1.2; cursor: pointer; transition: transform .08s; }
+  .chip:active { transform: scale(.96); }
+  .chip.on { background: var(--main); border-color: var(--main); color: var(--main-ink); font-weight: 700; }
+  .chip.wish.on { background: var(--wish); border-color: var(--wish); }
+  .chip.ok.on { background: var(--ok); border-color: var(--ok); }
+  .chip.all { border-style: dashed; }
+  .chip.all.on { border-style: solid; }
+  input, textarea { width: 100%; font-size: 16px; font-family: inherit; color: var(--ink); background: var(--bg);
+    border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 14px; outline: none; }
+  input:focus, textarea:focus { border-color: var(--main); }
+  .amount { font-size: 34px; font-weight: 800; padding: 10px 14px; letter-spacing: .5px; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; min-width: 0; }
+  .sub { font-size: 13px; color: var(--soft); margin: 6px 0 0; }
+  .gap { height: 10px; }
+  .preview { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--tint); font-size: 15px; font-weight: 700; }
+  .cities { display: grid; gap: 8px; margin-top: 12px; }
+  .cities label { font-size: 13px; color: var(--soft); display: block; margin-bottom: 4px; }
+  .err { color: var(--danger); font-size: 14px; font-weight: 700; min-height: 1.2em; margin: 6px 4px 0; }
+  .submit { position: fixed; left: 0; right: 0; bottom: 0; padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+    background: linear-gradient(to bottom, transparent, var(--bg) 35%); }
+  .submit button { display: block; width: 100%; max-width: 528px; margin: 0 auto; height: 56px; border: 0; border-radius: 16px;
+    background: var(--main); color: #fff; font-size: 18px; font-weight: 800; font-family: inherit; cursor: pointer;
+    box-shadow: 0 6px 18px rgba(255, 122, 89, .35); }
+  .submit button:disabled { opacity: .6; }
+  .center { min-height: 80vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; }
+  .big { font-size: 64px; margin-bottom: 8px; }
+  .center h2 { margin: 6px 0; font-size: 22px; }
+  .center p { color: var(--soft); line-height: 1.6; margin: 4px 0; }
+  pre { white-space: pre-wrap; text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px; font-size: 14px; width: 100%; font-family: inherit; }
+  .btn2 { margin-top: 12px; border: 0; border-radius: 12px; padding: 12px 18px; font-size: 16px; font-weight: 700;
+    background: var(--main); color: #fff; font-family: inherit; }
+  .dots::after { content: ''; animation: dots 1.2s steps(4) infinite; }
+  @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+</style>
+</head>
+<body>
+<div id="app"><div class="center"><div class="big">🌸</div><p class="dots">阿美準備中</p></div></div>
+
+<script>
+/* ═══════════ 只要改這兩行 ═══════════ */
+const CONFIG = {
+  LIFF_ID: '請貼上你的 LIFF ID',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbxhlKxAcIaWMNTeCLix9n_2g1Wd_iz-pw6w47Xp8pAZAsT9DVaPahyA2nK1HtcvP8ve9A/exec',
+};
+/* ═══════════════════════════════════ */
+
+const COUNTRIES = [
+  ['日本', '🇯🇵'], ['韓國', '🇰🇷'], ['泰國', '🇹🇭'], ['越南', '🇻🇳'], ['新加坡', '🇸🇬'], ['馬來西亞', '🇲🇾'],
+  ['印尼', '🇮🇩'], ['菲律賓', '🇵🇭'], ['香港', '🇭🇰'], ['澳門', '🇲🇴'], ['中國', '🇨🇳'], ['美國', '🇺🇸'],
+  ['加拿大', '🇨🇦'], ['英國', '🇬🇧'], ['歐洲', '🇪🇺'], ['瑞士', '🇨🇭'], ['澳洲', '🇦🇺'], ['紐西蘭', '🇳🇿'],
+  ['土耳其', '🇹🇷'], ['杜拜', '🇦🇪'], ['台灣', '🇹🇼'],
+];
+const CATS = [['吃', '🍜'], ['玩', '🎡'], ['景點', '📸'], ['購物', '🛍️'], ['交通', '🚃'], ['航班', '✈️'], ['住宿', '🏨'], ['其他', '📌']];
+const SLOTS = ['早上', '中午', '下午', '傍晚', '晚上', '宵夜'];
+const QUICK_ITEMS = [['🍜', '餐費'], ['🚕', '交通'], ['🎫', '門票'], ['🏨', '住宿'], ['🛍️', '購物'], ['🧋', '飲料'], ['🛒', '超商']];
+const ZERO_DEC = ['TWD', 'JPY', 'KRW', 'VND', 'IDR', 'CZK', 'INR'];
+
+// == COMPOSE START ==
+function oneLine(s) { return String(s == null ? '' : s).replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim(); }
+
+function composeSetup(f) {
+  const clean = s => oneLine(s).replace(/[（）()＋+]/g, ' ').replace(/\s+/g, ' ').trim();
+  const dest = f.places.map(p => {
+    const c = clean(p.cities);
+    return c ? `${clean(p.country)}（${c}）` : clean(p.country);
+  }).join('＋');
+  const lines = ['🧳 旅行開始設定', `📍 目的地：${dest}`, `📅 日期：${f.start.replace(/-/g, '/')} → ${f.end.replace(/-/g, '/')}`];
+  const extra = (f.extraCur || []).map(c => String(c).toUpperCase()).filter(c => /^[A-Z]{3}$/.test(c));
+  if (extra.length) lines.push(`💱 幣別：${extra.join('、')}`);
+  return lines.join('\n');
+}
+
+function composeItin(f) {
+  const lines = [f.editId ? `✏️ 改行程 #${f.editId}` : '➕ 加行程'];
+  lines.push(`📅 日期：${f.date ? f.date.replace(/-/g, '/') + '（' + '日一二三四五六'[new Date(f.date + 'T00:00:00Z').getUTCDay()] + '）' : '還沒決定'}`);
+  const time = [oneLine(f.slot), oneLine(f.time)].filter(Boolean).join(' ');
+  if (time) lines.push(`⏰ 時間：${time}`);
+  const cat = CATS.find(c => c[0] === f.cat) || CATS[CATS.length - 1];
+  lines.push(`🏷️ 類型：${cat[1]} ${cat[0]}`);
+  lines.push(`📌 名稱：${oneLine(f.name)}`);
+  if (oneLine(f.place)) lines.push(`📍 地點：${oneLine(f.place)}`);
+  if (oneLine(f.note)) lines.push(`📝 備註：${oneLine(f.note)}`);
+  lines.push(f.status === '確定' ? '✅ 狀態：確定' : '💭 狀態：想去');
+  return lines.join('\n');
+}
+
+function composeExpense(f) {
+  const lines = [f.editId ? `✏️ 改帳 #${f.editId}` : '💰 記帳'];
+  lines.push(`🧾 品項：${oneLine(f.item) || '一筆花費'}`);
+  lines.push(`💵 金額：${Number(f.amount)} ${f.cur}`);
+  lines.push(`🙋 付款：${f.payer}`);
+  lines.push(`👥 分給：${f.splitAll ? `全體（${f.allCount}人）` : f.split.join('、')}`);
+  return lines.join('\n');
+}
+// == COMPOSE END ==
+
+/* ─────────── 小工具 ─────────── */
+
+const S = {};
+const app = () => document.getElementById('app');
+
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => {
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'value') el.value = v;
+    else if (v !== false && v != null) el.setAttribute(k, v === true ? '' : v);
+  });
+  kids.flat().forEach(c => { if (c != null && c !== false) el.append(c.nodeType ? c : document.createTextNode(c)); });
+  return el;
+}
+
+function chips(options, { value, multi = false, onChange, extraClass }) {
+  let sel = multi ? new Set(value || []) : value;
+  const wrap = h('div', { class: 'chips' });
+  const draw = () => wrap.querySelectorAll('.chip').forEach(b => {
+    const v = b.dataset.v;
+    b.classList.toggle('on', multi ? sel.has(v) : sel === v);
+  });
+  options.forEach(o => {
+    wrap.append(h('button', {
+      type: 'button', class: 'chip ' + (o.cls || extraClass || ''), 'data-v': o.value,
+      onclick: () => {
+        if (multi) { sel.has(o.value) ? sel.delete(o.value) : sel.add(o.value); }
+        else sel = (sel === o.value && o.toggle) ? '' : o.value;
+        draw();
+        onChange && onChange(multi ? [...sel] : sel);
+      },
+    }, o.label));
+  });
+  draw();
+  wrap.set = v => { sel = multi ? new Set(v) : v; draw(); };
+  return wrap;
+}
+
+function card(label, hint, ...kids) {
+  return h('div', { class: 'card' }, h('div', { class: 'label' }, label, hint ? h('small', {}, hint) : null), ...kids);
+}
+
+function header(title, sub) {
+  return h('div', { class: 'top' }, h('span', { class: 'who' }, '🌸 阿美小表單'), h('h1', {}, title), h('p', {}, sub));
+}
+
+function submitBar(label, onClick) {
+  const btn = h('button', { type: 'button', onclick: onClick }, label);
+  return { el: h('div', { class: 'submit' }, btn), btn };
+}
+
+function money(n, cur) {
+  const c = (S.data.trip.currencies || []).find(x => x.code === cur) || { symbol: cur };
+  const dec = ZERO_DEC.includes(cur) ? 0 : 2;
+  const v = Number(n) || 0;
+  const s = dec ? v.toFixed(dec).replace(/\.?0+$/, '') : String(Math.round(v));
+  const p = s.split('.');
+  return c.symbol + p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (p[1] ? '.' + p[1] : '');
+}
+
+function screen(emoji, title, ...lines) {
+  app().replaceChildren(h('div', { class: 'center' }, h('div', { class: 'big' }, emoji), h('h2', {}, title), ...lines.map(l => (typeof l === 'string' ? h('p', {}, l) : l))));
+}
+
+/* ─────────── 啟動 ─────────── */
+
+function params() {
+  const sp = new URLSearchParams(location.search);
+  const out = {};
+  sp.forEach((v, k) => { out[k] = v; });
+  const st = sp.get('liff.state');
+  if (st) new URLSearchParams(st.replace(/^[^?]*\?/, '')).forEach((v, k) => { if (!(k in out)) out[k] = v; });
+  return out;
+}
+
+async function myHash(t) {
+  try {
+    const prof = await liff.getProfile();
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(prof.userId + ':' + t));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+  } catch (e) { return null; }
+}
+
+async function main() {
+  try {
+    await liff.init({ liffId: CONFIG.LIFF_ID });
+  } catch (e) {
+    return screen('🥲', 'LINE 表單啟動失敗', '請回群組再按一次按鈕試試看～', h('p', { class: 'sub' }, String(e && e.message || e)));
+  }
+  const p = params();
+  S.mode = ['setup', 'itin', 'expense'].includes(p.mode) ? p.mode : 'expense';
+  S.t = p.t; S.d = p.d || ''; S.id = p.id || '';
+  if (!S.t) return screen('🤔', '找不到是哪一趟旅程', '請從群組裡阿美的按鈕打開這個表單喔～');
+  if (!liff.isInClient() && !liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+  try {
+    let url = `${CONFIG.GAS_URL}?fn=trip&t=${encodeURIComponent(S.t)}`;
+    if (S.id && S.mode === 'itin') url += `&item=${encodeURIComponent(S.id)}`;
+    if (S.id && S.mode === 'expense') url += `&exp=${encodeURIComponent(S.id)}`;
+    S.data = await (await fetch(url)).json();
+  } catch (e) {
+    return screen('🥲', '阿美連不上行程表', '網路好像不太穩，等一下再試一次好嗎？', h('p', { class: 'sub' }, '（如果一直這樣，請管理員檢查 GAS_URL）'));
+  }
+  if (!S.data.ok) return screen('🤔', '找不到這趟旅程', '可能已經結束或重新設定了～請回群組打「選單」重新打開。');
+  S.me = await myHash(S.t);
+  ({ setup: renderSetup, itin: renderItin, expense: renderExpense })[S.mode]();
+}
+
+async function send(text, btn) {
+  btn.disabled = true;
+  btn.textContent = '送出中…';
+  try {
+    if (!liff.isInClient()) throw new Error('not in LINE');
+    await liff.sendMessages([{ type: 'text', text }]);
+    screen('🎉', '送出囉！', '阿美收到了，等等會在群組回覆你 🌸');
+    setTimeout(() => liff.closeWindow(), 1300);
+  } catch (e) {
+    const pre = h('pre', {}, text);
+    const copy = h('button', {
+      type: 'button', class: 'btn2',
+      onclick: async () => {
+        try { await navigator.clipboard.writeText(text); copy.textContent = '已複製 ✅'; } catch (err) { copy.textContent = '請長按上面的文字複製'; }
+      },
+    }, '📋 複製這段文字');
+    screen('📮', '請幫阿美貼到群組', '這裡沒辦法直接幫你傳到群組，', '複製下面這段、貼到群組送出，阿美就會收到 👇', pre, copy);
+  }
+}
+
+function errBox() { return h('div', { class: 'err' }); }
+
+/* ─────────── 🧳 旅行開始設定 ─────────── */
+
+function renderSetup() {
+  const T = S.data.trip;
+  const editing = T.status !== 'setup';
+  const known = COUNTRIES.map(c => c[0]);
+  const st = { countries: [], cities: {}, otherOn: false, otherName: '', otherCur: (T.extraCur || []).join(' '), start: T.start || '', end: T.end || '' };
+  (T.places || []).forEach(p => {
+    if (known.includes(p.country)) { st.countries.push(p.country); st.cities[p.country] = p.cities || ''; }
+    else { st.otherOn = true; st.otherName = p.country + (p.cities ? `（${p.cities}）` : ''); }
+  });
+
+  const cityBox = h('div', { class: 'cities' });
+  const otherBox = h('div', { class: 'cities' });
+  const drawCities = () => {
+    cityBox.replaceChildren(...st.countries.map(c => h('div', {},
+      h('label', {}, `${c} 的哪些城市？（選填）`),
+      h('input', { type: 'text', value: st.cities[c] || '', placeholder: '例如：東京、大阪', oninput: e => { st.cities[c] = e.target.value; } }))));
+    otherBox.replaceChildren(...(st.otherOn ? [
+      h('div', {}, h('label', {}, '國家或城市'), h('input', { type: 'text', value: st.otherName, placeholder: '例如：冰島', oninput: e => { st.otherName = e.target.value; } })),
+      h('div', {}, h('label', {}, '當地幣別代碼（3 個英文字母）'), h('input', { type: 'text', value: st.otherCur, placeholder: '例如：ISK', autocapitalize: 'characters', oninput: e => { st.otherCur = e.target.value; } })),
+    ] : []));
+  };
+
+  const countryChips = chips(COUNTRIES.map(([n, f]) => ({ value: n, label: `${f} ${n}` })).concat([{ value: '__other', label: '🌍 其他' }]), {
+    multi: true, value: st.countries.concat(st.otherOn ? ['__other'] : []),
+    onChange: v => { st.otherOn = v.includes('__other'); st.countries = COUNTRIES.map(c => c[0]).filter(c => v.includes(c)); drawCities(); },
+  });
+  drawCities();
+
+  const count = h('p', { class: 'sub' });
+  const drawCount = () => {
+    if (st.start && st.end && st.end >= st.start) count.textContent = `一共 ${Math.round((new Date(st.end) - new Date(st.start)) / 864e5) + 1} 天 🎈`;
+    else count.textContent = '';
+  };
+  const startIn = h('input', { type: 'date', value: st.start, oninput: e => { st.start = e.target.value; if (!st.end || st.end < st.start) { st.end = st.start; endIn.value = st.start; } drawCount(); } });
+  const endIn = h('input', { type: 'date', value: st.end, oninput: e => { st.end = e.target.value; drawCount(); } });
+  drawCount();
+
+  const err = errBox();
+  const bar = submitBar(editing ? '更新設定 ✨' : '送出給阿美 🚀', () => {
+    const places = st.countries.map(c => ({ country: c, cities: st.cities[c] || '' }));
+    const extra = [];
+    if (st.otherOn) {
+      const nm = oneLine(st.otherName);
+      const codes = (st.otherCur || '').toUpperCase().match(/[A-Z]{3}/g) || [];
+      if (!nm || !codes.length) { err.textContent = '「其他」要填國家跟幣別代碼喔，阿美才知道怎麼記帳～'; return; }
+      const m = nm.match(/^([^（(]+)(?:[（(]([^）)]*)[）)])?/);
+      places.push({ country: m ? m[1] : nm, cities: m && m[2] ? m[2] : '' });
+      extra.push(...codes);
+    }
+    if (!places.length) { err.textContent = '要去哪裡呢？選一個國家吧 🌏'; return; }
+    if (!st.start || !st.end) { err.textContent = '出發跟回來的日期都要填喔 📅'; return; }
+    if (st.end < st.start) { err.textContent = '回來的日期比出發還早耶，時光機嗎 😆'; return; }
+    if ((new Date(st.end) - new Date(st.start)) / 864e5 > 59) { err.textContent = '一趟最多 60 天喔～'; return; }
+    err.textContent = '';
+    send(composeSetup({ places, start: st.start, end: st.end, extraCur: extra }), bar.btn);
+  });
+
+  app().replaceChildren(
+    header(editing ? '⚙️ 改設定' : '🧳 旅行開始設定', editing ? '改好送出，原本的行程跟帳都會留著～' : '要去哪裡玩呀？阿美好期待！'),
+    card('📍 要去哪裡？', '可以選好幾個', countryChips, cityBox, otherBox),
+    card('📅 哪幾天？', '', h('div', { class: 'row' },
+      h('div', {}, h('p', { class: 'sub' }, '出發'), startIn),
+      h('div', {}, h('p', { class: 'sub' }, '回來'), endIn)), count),
+    h('p', { class: 'sub' }, '💱 記帳幣別會依國家自動設定，也都可以記台幣。'),
+    err, bar.el,
+  );
+}
+
+/* ─────────── ➕ 加行程 ─────────── */
+
+function renderItin() {
+  const T = S.data.trip;
+  const it = S.data.item;
+  if (S.id && !it) return screen('🤔', '找不到這個行程', '可能已經被刪掉了～回群組打「行程」看看最新的吧！');
+  const st = {
+    date: it ? (it.date || '') : S.d, slot: '', time: '', cat: it ? (it.cat || '其他') : '吃',
+    name: it ? it.name : '', place: it ? it.place : '', note: it ? it.note : '', status: it ? it.status : '想去',
+  };
+  if (it && it.time) {
+    const s = SLOTS.find(x => it.time.startsWith(x));
+    st.slot = s || '';
+    st.time = s ? it.time.slice(s.length).trim() : it.time;
+  }
+
+  const dayOpts = T.days.map(d => ({ value: d.date, label: d.label.replace('｜', ' ') }));
+  if (st.date && !T.days.some(d => d.date === st.date)) dayOpts.push({ value: st.date, label: st.date.replace(/-/g, '/') });
+  dayOpts.push({ value: '', label: '💭 還沒決定', cls: 'wish' });
+
+  const nameIn = h('input', { type: 'text', value: st.name, placeholder: '例如：一蘭拉麵 新宿店', maxlength: 60, oninput: e => { st.name = e.target.value; } });
+  const err = errBox();
+  const bar = submitBar(it ? '更新行程 ✏️' : '加進行程 ✨', () => {
+    if (!oneLine(st.name)) { err.textContent = '要去哪裡呢？名稱一定要填喔 📌'; nameIn.focus(); return; }
+    err.textContent = '';
+    send(composeItin(Object.assign({ editId: it ? it.id : '' }, st)), bar.btn);
+  });
+
+  app().replaceChildren(
+    header(it ? `✏️ 改行程 #${it.id}` : '➕ 加行程', it ? '改好送出，阿美幫你更新～' : '又有好點子了？快告訴阿美！'),
+    card('📌 去哪裡／做什麼？', '必填', nameIn),
+    card('📅 哪一天？', '', chips(dayOpts, { value: st.date, onChange: v => { st.date = v; } })),
+    card('⏰ 什麼時候？', '選填', chips(SLOTS.map(s => ({ value: s, label: s, toggle: true })), { value: st.slot, onChange: v => { st.slot = v; } }),
+      h('div', { class: 'gap' }),
+      h('input', { type: 'text', value: st.time, placeholder: '幾點？例如 19:00', oninput: e => { st.time = e.target.value; } })),
+    card('🏷️ 類型', '', chips(CATS.map(([n, e]) => ({ value: n, label: `${e} ${n}` })), { value: st.cat, onChange: v => { st.cat = v; } })),
+    card('✨ 決定了嗎？', '', chips([
+      { value: '想去', label: '💭 想去（願望清單）', cls: 'wish' },
+      { value: '確定', label: '✅ 確定要去', cls: 'ok' },
+    ], { value: st.status, onChange: v => { st.status = v; } })),
+    card('📍 地址或地圖連結', '選填', h('input', { type: 'text', value: st.place, placeholder: '貼上 Google 地圖連結也可以', oninput: e => { st.place = e.target.value; } })),
+    card('📝 備註', '選填', h('input', { type: 'text', value: st.note, placeholder: '例如：要先預約、排隊很久', oninput: e => { st.note = e.target.value; } })),
+    err, bar.el,
+  );
+}
+
+/* ─────────── 💰 記帳 ─────────── */
+
+function renderExpense() {
+  const T = S.data.trip;
+  const M = S.data.members;
+  const e = S.data.exp;
+  if (S.id && !e) return screen('🤔', '找不到這筆帳', '可能已經被刪掉了～回群組打「帳本」看看最新的吧！');
+  if (!M.length) return screen('🙋', '還沒有人報到', '請大家先在群組按「🙋 我要參加」～');
+  const me = M.find(m => m.h && m.h === S.me);
+  const names = M.map(m => m.name);
+  const st = {
+    amount: e ? String(e.amount) : '', cur: e ? e.cur : T.primary, item: e ? e.item : '',
+    payer: e ? e.payer : (me ? me.name : names[0]),
+    split: new Set(e ? (e.splitAll ? names : e.split) : names),
+  };
+  if (!names.includes(st.payer)) st.payer = names[0];
+
+  const preview = h('div', { class: 'preview' });
+  const drawPreview = () => {
+    const amt = parseFloat(String(st.amount).replace(/[,，]/g, ''));
+    const n = st.split.size;
+    if (!(amt > 0)) preview.textContent = '輸入金額，阿美幫你算每個人多少 🧮';
+    else if (!n) preview.textContent = '要分給誰呢？至少選一個人喔';
+    else preview.textContent = `${n === names.length ? '全體' : n} ${n === names.length ? n + ' 人' : '人'}分，每人 ${money(amt / n, st.cur)}`;
+  };
+
+  const amountIn = h('input', { class: 'amount', type: 'text', inputmode: 'decimal', value: st.amount, placeholder: '0',
+    oninput: ev => { st.amount = ev.target.value.replace(/[^\d.,，]/g, ''); ev.target.value = st.amount; drawPreview(); } });
+  const curChips = chips(T.currencies.map(c => ({ value: c.code, label: `${c.symbol} ${c.name}` })), { value: st.cur, onChange: v => { st.cur = v; drawPreview(); } });
+
+  const itemIn = h('input', { type: 'text', value: st.item, placeholder: '例如：燒肉晚餐', maxlength: 60, oninput: ev => { st.item = ev.target.value; } });
+  const quick = chips(QUICK_ITEMS.map(([em, n]) => ({ value: n, label: `${em} ${n}` })), {
+    value: '', onChange: v => { if (v) { st.item = v; itemIn.value = v; } quick.set(''); },
+  });
+
+  const payerChips = chips(M.map(m => ({ value: m.name, label: m.name + (m.h && m.h === S.me ? '（我）' : '') })), { value: st.payer, onChange: v => { st.payer = v; } });
+
+  let allChip;
+  const splitChips = chips(M.map(m => ({ value: m.name, label: m.name })), {
+    multi: true, value: [...st.split],
+    onChange: v => { st.split = new Set(v); allChip.set(st.split.size === names.length ? 'all' : ''); drawPreview(); },
+  });
+  allChip = chips([{ value: 'all', label: '👥 全體', cls: 'all' }], {
+    value: st.split.size === names.length ? 'all' : '',
+    onChange: () => {
+      const toAll = st.split.size !== names.length;
+      st.split = new Set(toAll ? names : []);
+      splitChips.set([...st.split]);
+      allChip.set(toAll ? 'all' : '');
+      drawPreview();
+    },
+  });
+  drawPreview();
+
+  const err = errBox();
+  const bar = submitBar(e ? '更新這筆帳 ✏️' : '記下來 ✅', () => {
+    const amt = parseFloat(String(st.amount).replace(/[,，]/g, ''));
+    if (!(amt > 0)) { err.textContent = '金額還沒填喔 💰'; amountIn.focus(); return; }
+    if (!st.split.size) { err.textContent = '要分給誰呢？至少選一個人 👥'; return; }
+    err.textContent = '';
+    const split = names.filter(n => st.split.has(n));
+    send(composeExpense({
+      editId: e ? e.id : '', item: st.item, amount: amt, cur: st.cur, payer: st.payer,
+      splitAll: split.length === names.length, allCount: names.length, split,
+    }), bar.btn);
+  });
+
+  app().replaceChildren(
+    header(e ? `✏️ 改帳 #${e.id}` : '💰 記帳', e ? '改好送出，阿美幫你更新～' : '誰這麼大方先墊錢？阿美記下來！'),
+    card('💵 多少錢？', '', amountIn, h('div', { class: 'gap' }), curChips),
+    card('🧾 買了什麼？', '選填', itemIn, h('div', { class: 'gap' }), quick),
+    card('🙋 誰先付的？', '', payerChips),
+    card('👥 分給誰？', '點名字可以取消', allChip, h('div', { class: 'gap' }), splitChips, preview),
+    err, bar.el,
+  );
+}
+
+main();
+</script>
+</body>
+</html>
