@@ -62,6 +62,27 @@
     background: var(--main); color: #fff; font-family: inherit; }
   .dots::after { content: ''; animation: dots 1.2s steps(4) infinite; }
   @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+  .map { height: 58vh; min-height: 320px; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); margin: 12px 0; background: var(--card); }
+  .leaflet-container { font-family: inherit; }
+  .pinwrap { background: none; border: 0; }
+  .pin { position: absolute; transform: translate(-50%, -50%); min-width: 28px; height: 28px; padding: 0 6px; border-radius: 14px;
+    color: #fff; font: 800 12px/24px -apple-system, BlinkMacSystemFont, sans-serif; text-align: center; white-space: nowrap;
+    border: 2px solid #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .35); }
+  .pin.wishpin { opacity: .8; border-style: dashed; }
+  .list { padding: 4px 10px; }
+  .li { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; background: none; border: 0;
+    border-bottom: 1px solid var(--line); padding: 11px 2px; color: var(--ink); font-family: inherit; font-size: 15px; cursor: pointer; }
+  .li:last-child { border-bottom: 0; }
+  .badge { flex: 0 0 auto; min-width: 34px; height: 26px; padding: 0 6px; border-radius: 13px; color: #fff; font-size: 12px; font-weight: 800;
+    display: inline-flex; align-items: center; justify-content: center; }
+  .li-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .li-main b { font-size: 15px; overflow-wrap: anywhere; }
+  .li-main small { color: var(--soft); font-size: 12px; }
+  .pop { font-size: 13px; line-height: 1.55; color: #3D2C29; min-width: 180px; max-width: 230px; }
+  .pop b { font-size: 14px; }
+  .pop .pn { color: #8A7570; }
+  .pop .nav { display: inline-block; margin-top: 8px; padding: 6px 12px; border-radius: 10px; background: #FF7A59; color: #fff !important;
+    text-decoration: none; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -217,12 +238,12 @@ async function main() {
     return screen('🥲', 'LINE 表單啟動失敗', '請回群組再按一次按鈕試試看～', h('p', { class: 'sub' }, String(e && e.message || e)));
   }
   const p = params();
-  S.mode = ['setup', 'itin', 'expense'].includes(p.mode) ? p.mode : 'expense';
+  S.mode = ['setup', 'itin', 'expense', 'map'].includes(p.mode) ? p.mode : 'expense';
   S.t = p.t; S.d = p.d || ''; S.id = p.id || '';
   if (!S.t) return screen('🤔', '找不到是哪一趟旅程', '請從群組裡阿美的按鈕打開這個表單喔～');
-  if (!liff.isInClient() && !liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+  if (S.mode !== 'map' && !liff.isInClient() && !liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
   try {
-    let url = `${CONFIG.GAS_URL}?fn=trip&t=${encodeURIComponent(S.t)}`;
+    let url = `${CONFIG.GAS_URL}?fn=${S.mode === 'map' ? 'map' : 'trip'}&t=${encodeURIComponent(S.t)}`;
     if (S.id && S.mode === 'itin') url += `&item=${encodeURIComponent(S.id)}`;
     if (S.id && S.mode === 'expense') url += `&exp=${encodeURIComponent(S.id)}`;
     S.data = await (await fetch(url)).json();
@@ -230,8 +251,8 @@ async function main() {
     return screen('🥲', '阿美連不上行程表', '網路好像不太穩，等一下再試一次好嗎？', h('p', { class: 'sub' }, '（如果一直這樣，請管理員檢查 GAS_URL）'));
   }
   if (!S.data.ok) return screen('🤔', '找不到這趟旅程', '可能已經結束或重新設定了～請回群組打「選單」重新打開。');
-  S.me = await myHash(S.t);
-  ({ setup: renderSetup, itin: renderItin, expense: renderExpense })[S.mode]();
+  S.me = S.mode === 'map' ? null : await myHash(S.t);
+  ({ setup: renderSetup, itin: renderItin, expense: renderExpense, map: renderMap })[S.mode]();
 }
 
 async function send(text, btn) {
@@ -447,6 +468,140 @@ function renderExpense() {
     card('👥 分給誰？', '點名字可以取消', allChip, h('div', { class: 'gap' }), splitChips, preview),
     err, bar.el,
   );
+}
+
+/* ─────────── 🗺️ 行程地圖 ─────────── */
+
+const DAY_COLORS = ['#FF7A59', '#4A90C2', '#2BAA6E', '#9B7BD4', '#E0A100', '#D9534F', '#00A6A6', '#C2185B'];
+const LEAFLET = 'https://unpkg.com/leaflet@1.9.4/dist/';
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  return new Promise((ok, bad) => {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = LEAFLET + 'leaflet.css';
+    document.head.append(css);
+    const js = document.createElement('script');
+    js.src = LEAFLET + 'leaflet.js';
+    js.onload = ok;
+    js.onerror = bad;
+    document.head.append(js);
+  });
+}
+
+// 在 LINE 裡點導航：用手機的瀏覽器或地圖 App 開
+document.addEventListener('click', e => {
+  const a = e.target.closest && e.target.closest('a.nav');
+  if (a && window.liff && liff.isInClient && liff.isInClient()) { e.preventDefault(); liff.openWindow({ url: a.href, external: true }); }
+});
+
+async function renderMap() {
+  const T = S.data.trip;
+  const items = (S.data.items || []).map(it => (it.lat != null && isFinite(it.lat) && isFinite(it.lng) ? it : Object.assign({}, it, { lat: null, lng: null })));
+  try { await loadLeaflet(); } catch (e) {
+    return screen('🥲', '地圖載入失敗', '網路好像不太穩，等一下再開一次好嗎？');
+  }
+  const dayIdx = {};
+  T.days.forEach((d, i) => { dayIdx[d.date] = i; });
+  const inTrip = it => !!it.date && it.date in dayIdx;
+  const colorOf = it => (inTrip(it) ? DAY_COLORS[dayIdx[it.date] % DAY_COLORS.length] : '#A39A97');
+  const num = {}, count = {};
+  items.forEach(it => {
+    if (it.cat === '住宿') return;
+    const k = inTrip(it) ? it.date : 'wish';
+    count[k] = (count[k] || 0) + 1;
+    num[it.id] = count[k];
+  });
+  const badge = (it, all) => (it.cat === '住宿' ? '🏨' : all && inTrip(it) ? `${dayIdx[it.date] + 1}-${num[it.id]}` : String(num[it.id]));
+  const when = it => [inTrip(it) ? T.days[dayIdx[it.date]].label.replace('｜', ' ') : (it.date ? it.date.replace(/-/g, '/') : '還沒排日期'), it.time].filter(Boolean).join('・');
+
+  const st = { day: S.d && S.d in dayIdx ? S.d : 'all' };
+  const opts = [{ value: 'all', label: '🗺️ 全部' }].concat(T.days.map((d, i) => ({ value: d.date, label: `Day ${i + 1}` })));
+  if (items.some(i => !inTrip(i) && i.cat !== '住宿')) opts.push({ value: 'wish', label: '💭 未排', cls: 'wish' });
+  const mapEl = h('div', { class: 'map' });
+  const list = h('div', { class: 'card list' });
+  const pinned = items.filter(i => i.lat != null).length;
+  app().replaceChildren(
+    header('🗺️ 行程地圖', `${T.dest}｜已插旗 ${pinned} 個點`),
+    h('div', { class: 'card' }, chips(opts, { value: st.day, onChange: v => { st.day = v || 'all'; draw(); } })),
+    mapEl, list,
+  );
+
+  const map = L.map(mapEl, { zoomControl: true });
+  const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'rastertiles/voyager'}/{z}/{x}/{y}{r}.png`, {
+    subdomains: 'abcd', maxZoom: 19, attribution: '© OpenStreetMap © CARTO',
+  }).addTo(map);
+  const layer = L.layerGroup().addTo(map);
+  const markers = {};
+
+  const visible = () => items.filter(it => it.cat === '住宿' || st.day === 'all' || (st.day === 'wish' ? !inTrip(it) : it.date === st.day));
+
+  function popup(it) {
+    const nav = /^https:\/\//.test(it.nav || '') ? it.nav : '';
+    return `<div class="pop"><b>${esc(it.emoji + ' ' + it.name)}</b>`
+      + `<div>${esc(when(it))}</div>`
+      + `<div>${it.status === '確定' ? '✅ 確定' : '💭 想去'}</div>`
+      + (it.place && !/^https?:/.test(it.place) ? `<div>📍 ${esc(it.place)}</div>` : '')
+      + (it.note ? `<div class="pn">📝 ${esc(it.note)}</div>` : '')
+      + (nav ? `<a class="nav" href="${esc(nav)}" target="_blank" rel="noopener">🧭 導航</a>` : '')
+      + '</div>';
+  }
+
+  function focus(it) {
+    const m = markers[it.id];
+    if (m) {
+      window.scrollTo({ top: Math.max(mapEl.offsetTop - 12, 0), behavior: 'smooth' });
+      map.setView(m.getLatLng(), Math.max(map.getZoom(), 15));
+      m.openPopup();
+    } else if (/^https:\/\//.test(it.nav || '')) {
+      if (window.liff && liff.isInClient && liff.isInClient()) liff.openWindow({ url: it.nav, external: true });
+      else window.open(it.nav, '_blank');
+    }
+  }
+
+  function draw() {
+    layer.clearLayers();
+    Object.keys(markers).forEach(k => { delete markers[k]; });
+    const vis = visible();
+    const all = st.day === 'all';
+    const pins = vis.filter(it => it.lat != null);
+    const hotelAt = {};
+    pins.forEach(it => {
+      if (it.cat === '住宿') {
+        const k = it.lat.toFixed(4) + ',' + it.lng.toFixed(4);
+        if (hotelAt[k]) { markers[it.id] = hotelAt[k]; return; } // 入住、退房同一間飯店只插一支旗
+      }
+      const icon = L.divIcon({
+        className: 'pinwrap', iconSize: [0, 0], popupAnchor: [0, -16],
+        html: `<div class="pin${it.status === '確定' ? '' : ' wishpin'}" style="background:${colorOf(it)}">${esc(badge(it, all))}</div>`,
+      });
+      markers[it.id] = L.marker([it.lat, it.lng], { icon }).addTo(layer).bindPopup(popup(it));
+      if (it.cat === '住宿') hotelAt[it.lat.toFixed(4) + ',' + it.lng.toFixed(4)] = markers[it.id];
+    });
+    if (st.day in dayIdx) {
+      const path = pins.filter(it => it.cat !== '住宿' && it.date === st.day).map(it => [it.lat, it.lng]);
+      if (path.length > 1) L.polyline(path, { color: colorOf({ date: st.day }), weight: 3, opacity: 0.75, dashArray: '6 8' }).addTo(layer);
+    }
+    const fit = pins.filter(it => it.cat !== '住宿' || all).length ? pins.filter(it => it.cat !== '住宿' || all) : items.filter(it => it.lat != null);
+    if (fit.length === 1) map.setView([fit[0].lat, fit[0].lng], 15);
+    else if (fit.length) map.fitBounds(L.latLngBounds(fit.map(it => [it.lat, it.lng])), { padding: [36, 36], maxZoom: 16 });
+    else map.setView([23.7, 121], 3);
+    list.replaceChildren(...(vis.length ? vis.map(it => h('button', { type: 'button', class: 'li', onclick: () => focus(it) },
+      h('span', { class: 'badge', style: `background:${colorOf(it)}` }, badge(it, all)),
+      h('span', { class: 'li-main' },
+        h('b', {}, `${it.emoji} ${it.name}`),
+        h('small', {}, [when(it), it.status === '確定' ? '' : '💭 想去', it.lat == null ? '📍 還沒定位' : ''].filter(Boolean).join('・')))))
+      : [h('p', { class: 'sub' }, '這天還沒有行程～回群組按「➕ 加行程」吧！')]));
+  }
+
+  draw();
+  setTimeout(() => map.invalidateSize(), 250);
 }
 
 main();
