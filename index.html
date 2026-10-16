@@ -156,7 +156,8 @@ function composeSetup(f) {
 function composeItin(f) {
   const lines = [f.editId ? `✏️ 改行程 #${f.editId}` : '➕ 加行程'];
   lines.push(`📅 日期：${f.date ? f.date.replace(/-/g, '/') + '（' + '日一二三四五六'[new Date(f.date + 'T00:00:00Z').getUTCDay()] + '）' : '還沒決定'}`);
-  const time = [oneLine(f.slot), oneLine(f.time)].filter(Boolean).join(' ');
+  const tt = oneLine(f.time).replace(new RegExp('^' + (oneLine(f.slot) || '\\u0000') + '\\s*'), '');
+  const time = [oneLine(f.slot), tt].filter(Boolean).join(' ');
   if (time) lines.push(`⏰ 時間：${time}`);
   const cat = CATS.find(c => c[0] === f.cat) || CATS[CATS.length - 1];
   lines.push(`🏷️ 類型：${cat[1]} ${cat[0]}`);
@@ -172,6 +173,18 @@ function composeStay(f) {
   const d = s => s.replace(/-/g, '/') + '（' + '日一二三四五六'[new Date(s + 'T00:00:00Z').getUTCDay()] + '）';
   const lines = ['🏨 加住宿', `🏨 飯店：${oneLine(f.name)}`, `📅 入住：${d(f.cin)}`, `📅 退房：${d(f.cout)}`];
   if (oneLine(f.place)) lines.push(`📍 地點：${oneLine(f.place)}`);
+  if (oneLine(f.note)) lines.push(`📝 備註：${oneLine(f.note)}`);
+  return lines.join('\n');
+}
+
+// ✈️ 加航班：班號、日期、起飛／抵達（時間｜機場｜航廈），隔天抵達加「｜隔天」
+function composeFlight(f) {
+  const d = s => s.replace(/-/g, '/') + '（' + '日一二三四五六'[new Date(s + 'T00:00:00Z').getUTCDay()] + '）';
+  const seg = (...p) => p.map(x => oneLine(x).replace(/[｜|]/g, ' ')).join('｜').replace(/｜+$/, '');
+  const lines = ['✈️ 加航班', `✈️ 班號：${oneLine(f.no).toUpperCase().replace(/\s+/g, '')}`, `📅 日期：${d(f.date)}`];
+  lines.push(`🛫 起飛：${seg(f.dep, f.from, f.fromT)}`);
+  if (oneLine(f.arr) || oneLine(f.to)) lines.push(`🛬 抵達：${seg(f.arr, f.to, f.toT)}${f.next ? '｜隔天' : ''}`);
+  if (oneLine(f.pnr)) lines.push(`🎫 訂位代號：${oneLine(f.pnr).toUpperCase()}`);
   if (oneLine(f.note)) lines.push(`📝 備註：${oneLine(f.note)}`);
   return lines.join('\n');
 }
@@ -300,7 +313,7 @@ async function main() {
     return screen('🥲', 'LINE 表單啟動失敗', '請回群組再按一次按鈕試試看～', h('p', { class: 'sub' }, String(e && e.message || e)));
   }
   const p = params();
-  S.mode = ['setup', 'itin', 'expense', 'map', 'stay', 'check', 'wish'].includes(p.mode) ? p.mode : 'expense';
+  S.mode = ['setup', 'itin', 'expense', 'map', 'stay', 'check', 'wish', 'flight'].includes(p.mode) ? p.mode : 'expense';
   const viewOnly = ['map', 'check', 'wish'].includes(S.mode); // 不用知道你是誰的頁面
   S.t = p.t; S.d = p.d || ''; S.id = p.id || ''; S.w = p.w === '1';
   if (!S.t) return screen('🤔', '找不到是哪一趟旅程', '請從群組裡阿美的按鈕打開這個表單喔～');
@@ -316,7 +329,7 @@ async function main() {
   }
   if (!S.data.ok) return screen('🤔', '找不到這趟旅程', '可能已經結束或重新設定了～請回群組打「選單」重新打開。');
   S.me = viewOnly ? null : await myHash(S.t);
-  ({ setup: renderSetup, itin: renderItin, expense: renderExpense, map: renderMap, stay: renderStay, check: renderCheck, wish: renderWish })[S.mode]();
+  ({ setup: renderSetup, itin: renderItin, expense: renderExpense, map: renderMap, stay: renderStay, check: renderCheck, wish: renderWish, flight: renderFlight })[S.mode]();
 }
 
 async function send(text, btn, opts) {
@@ -456,6 +469,7 @@ function renderItin() {
     card('🏷️ 類型', '', chips(CATS.map(([n, e]) => ({ value: n, label: `${e} ${n}` })), { value: st.cat, onChange: v => {
       st.cat = v;
       if (v === '住宿' && !it && !S.fromMap) renderStay({ name: st.name, place: st.place, note: st.note, cin: st.date }); // 住宿改用選日期的表單
+      if (v === '航班' && !it && !S.fromMap) renderFlight({ no: st.name, date: st.date, note: st.note }); // 航班改用航班表單
     } })),
     card('📍 地址或地圖連結', '選填', h('input', { type: 'text', value: st.place, placeholder: '貼上 Google 地圖連結也可以', oninput: e => { st.place = e.target.value; } })),
     card('📝 備註', '選填', h('input', { type: 'text', value: st.note, placeholder: '例如：要先預約、排隊很久', oninput: e => { st.note = e.target.value; } })),
@@ -575,6 +589,120 @@ function renderWish() {
   );
   draw();
   if (S.id) setTimeout(() => { const el = document.getElementById('w' + S.id); if (el) el.scrollIntoView({ block: 'center' }); }, 60);
+}
+
+/* ─────────── ✈️ 加航班 ─────────── */
+
+const HOME_AP = [['桃園', 'TPE'], ['松山', 'TSA'], ['高雄', 'KHH'], ['台中', 'RMQ']];
+const AP_BY_COUNTRY = {
+  韓國: [['仁川', 'ICN'], ['金浦', 'GMP'], ['釜山', 'PUS'], ['濟州', 'CJU']],
+  日本: [['成田', 'NRT'], ['羽田', 'HND'], ['關西', 'KIX'], ['福岡', 'FUK'], ['新千歲', 'CTS'], ['那霸', 'OKA'], ['名古屋', 'NGO']],
+  泰國: [['曼谷', 'BKK'], ['廊曼', 'DMK'], ['清邁', 'CNX'], ['普吉', 'HKT']],
+  越南: [['胡志明', 'SGN'], ['河內', 'HAN'], ['峴港', 'DAD']],
+  新加坡: [['樟宜', 'SIN']], 馬來西亞: [['吉隆坡', 'KUL']], 印尼: [['峇里島', 'DPS'], ['雅加達', 'CGK']],
+  菲律賓: [['馬尼拉', 'MNL'], ['宿霧', 'CEB']], 香港: [['香港', 'HKG']], 澳門: [['澳門', 'MFM']],
+};
+const AP_TERMS = { TPE: ['T1', 'T2'], ICN: ['T1', 'T2'], NRT: ['T1', 'T2', 'T3'], HND: ['T1', 'T2', 'T3'], KIX: ['T1', 'T2'], CTS: ['國際線', '國內線'], FUK: ['國際線', '國內線'], OKA: ['國際線', '國內線'] };
+
+function renderFlight(pre) {
+  pre = pre || {};
+  const T = S.data.trip;
+  const days = T.days.map(d => d.date);
+  const lab = s => { const d = new Date(s + 'T00:00:00Z'); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}（${'日一二三四五六'[d.getUTCDay()]}）`; };
+  const away = [].concat(...(T.places || []).map(p => AP_BY_COUNTRY[p.country] || []));
+  const apOf = a => `${a[0]} ${a[1]}`;
+  const st = { how: 'form', leg: '', no: oneLine(pre.no).toUpperCase(), date: '', dep: '', arr: '', from: '', fromT: '', to: '', toT: '', pnr: '', note: pre.note || '', paste: '' };
+  const setLeg = leg => {
+    st.leg = leg;
+    if (leg === 'out') { st.date = days[0] || st.date; st.from = apOf(HOME_AP[0]); st.to = away[0] ? apOf(away[0]) : ''; }
+    if (leg === 'back') { st.date = days[days.length - 1] || st.date; st.from = away[0] ? apOf(away[0]) : ''; st.to = apOf(HOME_AP[0]); }
+    st.fromT = ''; st.toT = '';
+  };
+  setLeg(pre.date && days.length > 1 && pre.date === days[days.length - 1] ? 'back' : 'out');
+  if (pre.date) st.date = pre.date;
+
+  const body = h('div');
+  const prev = h('div', { class: 'preview' });
+  const err = errBox();
+  const code = v => (String(v).match(/\b([A-Z]{3})\b/) || [])[1] || '';
+  const next = () => st.dep && st.arr && st.arr < st.dep;
+  const drawPrev = () => {
+    if (st.how === 'paste') { prev.textContent = '貼上之後按送出，阿美會自己找班號、時間、航廈'; return; }
+    if (st.dep && st.date && oneLine(st.no)) err.textContent = '';
+    const name = s => oneLine(s).replace(/\s*\b[A-Z]{3}\b/, '') || '？';
+    prev.textContent = `${st.no || '班號？'}｜${st.date ? lab(st.date) : '日期？'} ${st.dep || '--:--'} ${name(st.from)}${st.fromT ? ' ' + st.fromT : ''} → ${st.arr || '--:--'} ${name(st.to)}${st.toT ? ' ' + st.toT : ''}${next() ? '（隔天到）' : ''}`;
+  };
+
+  // 機場：常用的點一下，沒有的自己打；航廈有的機場才出現，選填
+  function airport(title, key, tkey, list) {
+    const termBox = h('div');
+    const drawTerm = () => {
+      const opts = AP_TERMS[code(st[key])] || [];
+      if (!opts.includes(st[tkey])) st[tkey] = '';
+      termBox.replaceChildren(...(opts.length ? [h('p', { class: 'sub' }, '航廈（選填，不確定就跳過）'),
+        chips(opts.map(o => ({ value: o, label: o, toggle: true })), { value: st[tkey], onChange: v => { st[tkey] = v; drawPrev(); } })] : []));
+    };
+    const input = h('input', { type: 'text', value: list.some(a => apOf(a) === st[key]) ? '' : st[key], placeholder: '其他機場，例如：大阪 ITM',
+      oninput: e => { st[key] = e.target.value; pick.set(''); drawTerm(); drawPrev(); } });
+    const pick = chips(list.map(a => ({ value: apOf(a), label: `${a[0]} ${a[1]}` })), { value: st[key], onChange: v => { st[key] = v; input.value = ''; drawTerm(); drawPrev(); } });
+    drawTerm();
+    return card(title, '', pick, h('div', { class: 'gap' }), input, termBox);
+  }
+
+  function draw() {
+    if (st.how === 'paste') {
+      body.replaceChildren(card('📋 貼上訂位資料', '航空公司 App、確認信都可以',
+        h('textarea', { rows: 9, value: st.paste, placeholder: '把整段訂位確認複製貼上\n例如：\nKE2030 11/21 19:25 桃園 TPE T1 → 22:55 仁川 ICN T2\n訂位代號 ABC123', oninput: e => { st.paste = e.target.value; } })));
+      drawPrev();
+      return;
+    }
+    const legs = chips([{ value: 'out', label: '🛫 去程（出國）' }, { value: 'back', label: '🛬 回程（回國）' }, { value: 'other', label: '🔁 其他段' }],
+      { value: st.leg, onChange: v => { setLeg(v || 'out'); draw(); } });
+    const noIn = h('input', { type: 'text', value: st.no, placeholder: '例如：KE2030、BR160', autocapitalize: 'characters', maxlength: 10,
+      oninput: e => { st.no = e.target.value.toUpperCase(); drawPrev(); } });
+    const dayOpts = days.map(d => ({ value: d, label: lab(d) }));
+    if (st.date && !days.includes(st.date)) dayOpts.push({ value: st.date, label: lab(st.date) });
+    const dateIn = h('input', { type: 'date', value: st.date, oninput: e => { st.date = e.target.value; draw(); } });
+    const both = HOME_AP.concat(away);
+    const fromList = st.leg === 'out' ? HOME_AP : st.leg === 'back' && away.length ? away : both;
+    const toList = st.leg === 'back' ? HOME_AP : st.leg === 'out' && away.length ? away : both;
+    body.replaceChildren(
+      card('✈️ 去程還是回程？', '', legs),
+      card('🔢 航班號碼', '必填', noIn),
+      card('📅 起飛日期', '必填', chips(dayOpts, { value: st.date, onChange: v => { st.date = v; dateIn.value = v; drawPrev(); } }),
+        h('p', { class: 'sub' }, '不在旅程日期裡？直接選日期：'), dateIn),
+      card('⏰ 起飛、抵達時間', '起飛必填', h('div', { class: 'row' },
+        h('div', {}, h('p', { class: 'sub' }, '🛫 起飛（當地時間）'), h('input', { type: 'time', class: 'dep', value: st.dep, oninput: e => { st.dep = e.target.value; drawPrev(); } })),
+        h('div', {}, h('p', { class: 'sub' }, '🛬 抵達（當地時間）'), h('input', { type: 'time', class: 'arr', value: st.arr, oninput: e => { st.arr = e.target.value; drawPrev(); } })))),
+      airport('🛫 從哪個機場出發？', 'from', 'fromT', fromList),
+      airport('🛬 飛到哪個機場？', 'to', 'toT', toList),
+      card('🎫 訂位代號', '選填', h('input', { type: 'text', value: st.pnr, placeholder: '例如：ABC123（報到、改票會用到）', autocapitalize: 'characters', oninput: e => { st.pnr = e.target.value; } })),
+      card('📝 備註', '選填', h('input', { type: 'text', value: st.note, placeholder: '例如：託運 23kg、已選位', oninput: e => { st.note = e.target.value; } })),
+    );
+    drawPrev();
+  }
+
+  const bar = submitBar('記下這班飛機 ✈️', () => {
+    if (st.how === 'paste') {
+      if (!oneLine(st.paste)) { err.textContent = '先貼上訂位資料喔 📋'; return; }
+      err.textContent = '';
+      return send('航班\n' + st.paste.trim(), bar.btn);
+    }
+    if (!/^[A-Z0-9]{2}\s?\d{1,4}[A-Z]?$/.test(oneLine(st.no))) { err.textContent = '航班號碼長這樣：KE2030、BR 160 ✈️'; return; }
+    if (!st.date) { err.textContent = '哪天起飛呢？📅'; return; }
+    if (!st.dep) { err.textContent = '起飛時間要填喔，叫機場接送會用到 ⏰'; return; }
+    err.textContent = '';
+    send(composeFlight(Object.assign({}, st, { next: next() })), bar.btn);
+  });
+
+  app().replaceChildren(
+    header('✈️ 加航班', '有訂位確認就直接貼上；沒有就自己選，填入境卡、叫機場接送都查得到'),
+    h('div', { class: 'card' }, chips([{ value: 'form', label: '✏️ 自己填' }, { value: 'paste', label: '📋 貼上訂位資料' }],
+      { value: st.how, onChange: v => { st.how = v || 'form'; draw(); } })),
+    body, prev, err, bar.el,
+  );
+  draw();
+  window.scrollTo(0, 0);
 }
 
 /* ─────────── 🏨 加住宿 ─────────── */
