@@ -112,8 +112,9 @@
   .wedit { padding: 2px 2px 14px; display: grid; gap: 8px; }
   .wedit .sub { margin: 2px 0 0; }
   textarea { resize: vertical; line-height: 1.5; }
-  .del2 { display: block; margin: 18px auto 0; background: var(--card); color: var(--danger); border: 1.5px solid var(--danger); }
-  .del2.armed { background: var(--danger); color: #fff; }
+  .del2 { display: block; margin: 28px auto 8px; padding: 10px 16px; font-size: 14px; font-weight: 700; background: none; color: var(--danger);
+    border: 1.5px solid var(--danger); border-radius: 12px; }
+  .del-hint { text-align: center; font-size: 12px; color: var(--soft); margin: 0 0 8px; }
   .pop .nav { display: inline-block; margin-top: 8px; padding: 6px 12px; border-radius: 10px; background: #FF7A59; color: #fff !important;
     text-decoration: none; font-weight: 700; }
 </style>
@@ -362,13 +363,10 @@ async function send(text, btn, opts) {
 
 function errBox() { return h('div', { class: 'err' }); }
 
+// 共用：刪除按鈕。按一下就刪；刪錯了群組裡阿美的回覆有「↩️ 救回來」
 function delButton(text) {
-  let armed = false;
-  const b = h('button', { type: 'button', class: 'btn2 del2', onclick: () => {
-    if (!armed) { armed = true; b.classList.add('armed'); b.textContent = '再按一次就刪掉 🗑️'; return; }
-    send(text, b, S.fromMap ? { onSent: backToMap } : null);
-  } }, '🗑️ 刪掉這筆');
-  return b;
+  const b = h('button', { type: 'button', class: 'del2', onclick: () => send(text, b, S.fromMap ? { onSent: backToMap } : null) }, '🗑️ 刪掉這筆');
+  return h('div', {}, b, h('p', { class: 'del-hint' }, '刪錯了沒關係，群組裡按「↩️ 救回來」'));
 }
 
 function backBtn() { return S.fromMap ? h('button', { type: 'button', class: 'tbtn back', onclick: backToMap }, '← 回地圖') : null; }
