@@ -102,6 +102,16 @@
   .ck b { display: block; font-size: 20px; }
   .ck small { display: block; font-size: 14px; color: var(--soft); margin-top: 4px; line-height: 1.4; }
   .ck.on b { text-decoration: line-through; color: var(--soft); }
+  .mini.okon { background: var(--ok); color: #fff; }
+  .mini.delon { background: var(--danger); color: #fff; }
+  .wrow { border-bottom: 1px solid var(--line); }
+  .wrow:last-child { border-bottom: 0; }
+  .wrow .li-row { border-bottom: 0; }
+  .wrow.del .li-main b { text-decoration: line-through; color: var(--soft); }
+  .wrow.ok .li-main b { color: var(--ok); }
+  .wedit { padding: 2px 2px 14px; display: grid; gap: 8px; }
+  .wedit .sub { margin: 2px 0 0; }
+  textarea { resize: vertical; line-height: 1.5; }
   .pop .nav { display: inline-block; margin-top: 8px; padding: 6px 12px; border-radius: 10px; background: #FF7A59; color: #fff !important;
     text-decoration: none; font-weight: 700; }
 </style>
@@ -171,6 +181,20 @@ function composeReorder(f) {
   const day = f.date ? `${+f.date.slice(5, 7)}/${+f.date.slice(8, 10)}` : '還沒排日期';
   const lines = [`↕️ 排順序 ${day}${f.label ? `（${oneLine(f.label)}）` : ''}`];
   f.items.forEach(it => lines.push(`#${it.id} ${oneLine(it.name)}`));
+  return lines.join('\n');
+}
+
+// 💭 整理願望清單：確定、修改、刪除、新增一次送出，群組只出現一則
+function composeWish(f) {
+  const md = s => (s ? `${+s.slice(5, 7)}/${+s.slice(8, 10)}` : '還沒決定');
+  const lines = ['💭 整理願望清單'];
+  (f.confirm || []).forEach(it => lines.push(`✅ 確定 #${it.id} ${oneLine(it.name)}`));
+  (f.edit || []).forEach(it => lines.push(`✏️ #${it.id}｜${md(it.date)}｜${oneLine(it.time).replace(/[｜|]/g, '／')}｜${oneLine(it.name)}`));
+  (f.del || []).forEach(it => lines.push(`🗑️ 刪除 #${it.id} ${oneLine(it.name)}`));
+  (f.add || []).forEach(a => {
+    const x = oneLine(a.text);
+    if (x) lines.push(`➕ ${a.date && !/^\d{1,2}\s*[\/月]\s*\d{1,2}/.test(x) ? md(a.date) + ' ' : ''}${x}`);
+  });
   return lines.join('\n');
 }
 
@@ -276,12 +300,13 @@ async function main() {
     return screen('🥲', 'LINE 表單啟動失敗', '請回群組再按一次按鈕試試看～', h('p', { class: 'sub' }, String(e && e.message || e)));
   }
   const p = params();
-  S.mode = ['setup', 'itin', 'expense', 'map', 'stay', 'check'].includes(p.mode) ? p.mode : 'expense';
+  S.mode = ['setup', 'itin', 'expense', 'map', 'stay', 'check', 'wish'].includes(p.mode) ? p.mode : 'expense';
+  const viewOnly = ['map', 'check', 'wish'].includes(S.mode); // 不用知道你是誰的頁面
   S.t = p.t; S.d = p.d || ''; S.id = p.id || ''; S.w = p.w === '1';
   if (!S.t) return screen('🤔', '找不到是哪一趟旅程', '請從群組裡阿美的按鈕打開這個表單喔～');
-  if (S.mode !== 'map' && S.mode !== 'check' && !liff.isInClient() && !liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+  if (!viewOnly && !liff.isInClient() && !liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
   try {
-    let url = `${CONFIG.GAS_URL}?fn=${S.mode === 'map' ? 'map' : 'trip'}&t=${encodeURIComponent(S.t)}`;
+    let url = `${CONFIG.GAS_URL}?fn=${S.mode === 'map' || S.mode === 'wish' ? 'map' : 'trip'}&t=${encodeURIComponent(S.t)}`;
     if (S.id && S.mode === 'itin') url += `&item=${encodeURIComponent(S.id)}`;
     if (S.mode === 'check') url += '&check=1';
     if (S.id && S.mode === 'expense') url += `&exp=${encodeURIComponent(S.id)}`;
@@ -290,8 +315,8 @@ async function main() {
     return screen('🥲', '阿美連不上行程表', '網路好像不太穩，等一下再試一次好嗎？', h('p', { class: 'sub' }, '（如果一直這樣，請管理員檢查 GAS_URL）'));
   }
   if (!S.data.ok) return screen('🤔', '找不到這趟旅程', '可能已經結束或重新設定了～請回群組打「選單」重新打開。');
-  S.me = S.mode === 'map' || S.mode === 'check' ? null : await myHash(S.t);
-  ({ setup: renderSetup, itin: renderItin, expense: renderExpense, map: renderMap, stay: renderStay, check: renderCheck })[S.mode]();
+  S.me = viewOnly ? null : await myHash(S.t);
+  ({ setup: renderSetup, itin: renderItin, expense: renderExpense, map: renderMap, stay: renderStay, check: renderCheck, wish: renderWish })[S.mode]();
 }
 
 async function send(text, btn, opts) {
@@ -462,6 +487,94 @@ function renderCheck() {
     h('button', { type: 'button', class: 'btn2', onclick: () => { try { liff.closeWindow(); } catch (e) { /* 不在 LINE 裡 */ } } }, '好了，關掉'),
   );
   draw();
+}
+
+/* ─────────── 💭 整理願望清單（改好一次送出，群組只多一則訊息）─────────── */
+
+function renderWish() {
+  const T = S.data.trip;
+  const all = (S.data.items || []).filter(it => it.status !== '確定');
+  const dayIdx = {};
+  T.days.forEach((d, i) => { dayIdx[d.date] = i; });
+  const mdOf = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
+  const when = (date, time) => [date ? (date in dayIdx ? `Day ${dayIdx[date] + 1} ${mdOf(date)}` : date.replace(/-/g, '/')) : '還沒排日期', time].filter(Boolean).join('・');
+  const dayOpts = extra => {
+    const o = T.days.map((d, i) => ({ value: d.date, label: `Day ${i + 1} ${mdOf(d.date)}` }));
+    if (extra && !(extra in dayIdx)) o.push({ value: extra, label: extra.replace(/-/g, '/') });
+    return o.concat([{ value: '', label: '💭 還沒決定', cls: 'wish' }]);
+  };
+  const st = {};
+  all.forEach(it => { st[it.id] = { act: '', open: String(it.id) === String(S.id), date: it.date || '', time: it.time || '', name: it.name }; });
+  const add = { text: '', date: '' };
+  const changed = it => { const x = st[it.id]; return oneLine(x.name) !== it.name || x.date !== (it.date || '') || oneLine(x.time) !== (it.time || ''); };
+  const listBox = h('div');
+  const sum = h('div', { class: 'preview' });
+  const err = errBox();
+
+  function drawSum() {
+    let ok = 0, del = 0, edit = 0;
+    all.forEach(it => { const x = st[it.id]; if (x.act === 'del') del++; else { if (x.act === 'ok') ok++; if (changed(it)) edit++; } });
+    const n = add.text.split('\n').filter(l => oneLine(l)).length;
+    const parts = [ok && `✅ 確定 ${ok}`, edit && `✏️ 修改 ${edit}`, del && `🗑️ 刪除 ${del}`, n && `💭 新增 ${Math.min(n, 30)}`].filter(Boolean);
+    sum.textContent = parts.length ? `準備送出：${parts.join('　')}` : '還沒改任何東西～改好再一次送出';
+    if (parts.length) err.textContent = '';
+  }
+
+  function row(it) {
+    const x = st[it.id];
+    const r = h('div', { class: 'wrow' + (x.act === 'del' ? ' del' : '') + (x.act === 'ok' ? ' ok' : ''), id: 'w' + it.id });
+    r.append(h('div', { class: 'li-row' },
+      h('button', { type: 'button', class: 'li', onclick: () => { x.open = !x.open; draw(); } },
+        h('span', { class: 'li-main' },
+          h('b', {}, `${it.emoji || ''} ${oneLine(x.name) || it.name}`),
+          h('small', {}, [when(x.date, oneLine(x.time)), x.act === 'ok' ? '✅ 要改成確定' : '', x.act !== 'del' && changed(it) ? '✏️ 改過' : '', x.open ? '' : '點名稱可以修改'].filter(Boolean).join('・')))),
+      h('button', { type: 'button', class: 'mini ok' + (x.act === 'ok' ? ' okon' : ''), 'aria-label': '改成確定', onclick: () => { x.act = x.act === 'ok' ? '' : 'ok'; draw(); } }, '✅'),
+      h('button', { type: 'button', class: 'mini del' + (x.act === 'del' ? ' delon' : ''), 'aria-label': '刪除', onclick: () => { x.act = x.act === 'del' ? '' : 'del'; draw(); } }, '🗑️')));
+    if (x.open && x.act !== 'del') {
+      r.append(h('div', { class: 'wedit' },
+        h('p', { class: 'sub' }, '名稱'),
+        h('input', { type: 'text', class: 'wname', value: x.name, maxlength: 60, oninput: e => { x.name = e.target.value; drawSum(); } }),
+        h('p', { class: 'sub' }, '哪一天'),
+        chips(dayOpts(x.date), { value: x.date, onChange: v => { x.date = v; drawSum(); } }),
+        h('p', { class: 'sub' }, '時間（選填）'),
+        h('input', { type: 'text', class: 'wtime', value: x.time, placeholder: '例如：晚上 19:00', oninput: e => { x.time = e.target.value; drawSum(); } })));
+    }
+    return r;
+  }
+
+  function draw() {
+    listBox.replaceChildren(...(all.length ? all.map(row) : [h('p', { class: 'sub' }, '目前沒有想去的地方～下面可以一次加很多個！')]));
+    drawSum();
+  }
+
+  const ta = h('textarea', { rows: 5, placeholder: '一行一個，例如：\n鹽麵包 자연도소금빵\n11/23 咖啡 ILHO\n晚上 梨泰院夜店', oninput: e => { add.text = e.target.value; drawSum(); } });
+  const bar = submitBar('一次送出 💭', () => {
+    const confirm = [], del = [], edit = [];
+    for (const it of all) {
+      const x = st[it.id];
+      if (x.act === 'del') { del.push({ id: it.id, name: it.name }); continue; }
+      if (changed(it)) {
+        if (!oneLine(x.name)) { err.textContent = `「${it.name}」的名稱不能空白喔 📌`; return; }
+        edit.push({ id: it.id, date: x.date, time: x.time, name: x.name });
+      }
+      if (x.act === 'ok') confirm.push({ id: it.id, name: oneLine(x.name) || it.name });
+    }
+    const adds = add.text.split('\n').map(oneLine).filter(Boolean).slice(0, 30).map(text => ({ text, date: add.date }));
+    if (!confirm.length && !del.length && !edit.length && !adds.length) { err.textContent = '還沒改任何東西喔 🤔'; return; }
+    err.textContent = '';
+    send(composeWish({ confirm, edit, del, add: adds }), bar.btn);
+  });
+
+  app().replaceChildren(
+    header('💭 整理願望清單', '在這裡慢慢改、一次加很多，最後按一次送出，群組只會多一則訊息 🌸'),
+    card(`💭 現在的願望（${all.length}）`, '✅ 改成確定　🗑️ 刪掉', listBox),
+    card('➕ 一次加很多', '一行一個，最多 30 個', ta,
+      h('p', { class: 'sub' }, '沒寫日期的放哪天？'),
+      chips(dayOpts(''), { value: '', onChange: v => { add.date = v; } })),
+    sum, err, bar.el,
+  );
+  draw();
+  if (S.id) setTimeout(() => { const el = document.getElementById('w' + S.id); if (el) el.scrollIntoView({ block: 'center' }); }, 60);
 }
 
 /* ─────────── 🏨 加住宿 ─────────── */
